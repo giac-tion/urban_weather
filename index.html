@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>City climate comparison</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#14202b;--muted:#5d6b78;--grid:#e3e7eb;--line:#cfd6dc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161c;--card:#18212a;--text:#e7edf2;--muted:#93a1ad;--grid:#27323c;--line:#3a4753}}
+:root[data-theme="dark"]{--bg:#10161c;--card:#18212a;--text:#e7edf2;--muted:#93a1ad;--grid:#27323c;--line:#3a4753}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 "Avenir Next","Segoe UI",system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 16px}
+.picker{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+input{flex:1 1 240px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit}
+input:focus-visible,button:focus-visible{outline:2px solid #2a7de1;outline-offset:2px}
+button.add{padding:10px 16px;border:0;border-radius:8px;background:#2a7de1;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.chips{display:flex;gap:8px;flex-wrap:wrap;min-height:36px;margin-bottom:14px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 8px 6px 10px;border-radius:999px;background:var(--card);border:2px solid;font-weight:600}
+.chip button{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0 2px}
+.msg{color:var(--muted);font-size:13px;min-height:18px;margin:-6px 0 8px}
+section{background:var(--card);border-radius:12px;padding:14px 14px 10px;margin-bottom:16px}
+h2{font-size:16px;margin:0 0 6px}h2 span{color:var(--muted);font-weight:400}
+.wrap{position:relative}
+svg{width:100%;height:auto;display:block;touch-action:pan-y}
+svg text{fill:var(--muted);font-size:11px}
+.tip{position:absolute;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.18);display:none;white-space:nowrap;z-index:2}
+.tip b{display:block;margin-bottom:2px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.empty{color:var(--muted);padding:30px 0;text-align:center}
+footer{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>City climate comparison</h1>
+<p class="sub">Monthly averages for up to 5 US cities, overlaid on shared axes.</p>
+<div class="picker">
+<input id="q" list="cities" placeholder="Type a city, e.g. Denver" autocomplete="off" aria-label="City name">
+<datalist id="cities"></datalist>
+<button class="add" id="addBtn">Add city</button>
+</div>
+<div class="msg" id="msg"></div>
+<div class="chips" id="chips"></div>
+<section><h2>Temperature <span>°F, average daily high and low</span></h2><div class="wrap" id="c-temp"></div></section>
+<section><h2>Rainfall <span>inches per month</span></h2><div class="wrap" id="c-rain"></div></section>
+<section><h2>Snowfall <span>inches per month</span></h2><div class="wrap" id="c-snow"></div></section>
+<section><h2>Daylight <span>hours per day (mid-month)</span></h2><div class="wrap" id="c-day"></div></section>
+<footer>Source: NOAA NCEI 1991–2020 U.S. Climate Normals (station data); daylight is calculated from latitude. The shaded column marks the current month.</footer>
+</main>
+<script>
+let D=[]; // filled from data/climate.json
+const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const COL=["#2a7de1","#e8590c","#2f9e44","#ae3ec9","#d6a100"];
+const MIDDOY=[15,46,74,105,135,166,196,227,258,288,319,349];
+function daylight(lat){return MIDDOY.map(n=>{const d=23.44*Math.sin(2*Math.PI*(284+n)/365)*Math.PI/180,p=lat*Math.PI/180;
+ const x=Math.max(-1,Math.min(1,-Math.tan(p)*Math.tan(d)));return Math.round(24/Math.PI*Math.acos(x)*10)/10})}
+let sel=[];
+const $=id=>document.getElementById(id);
+function say(t){$("msg").textContent=t}
+function add(){
+ const v=$("q").value.trim().toLowerCase();if(!v)return;
+ let c=D.find(x=>x[0].toLowerCase()===v)||D.find(x=>x[0].toLowerCase().startsWith(v))||D.find(x=>x[0].toLowerCase().includes(v));
+ if(!c){say("No match for \""+$("q").value+"\". Pick a city from the suggestions.");return}
+ if(sel.some(s=>s.n===c[0])){say(c[0]+" is already shown.");return}
+ if(sel.length>=5){say("Five cities max. Remove one to add another.");return}
+ const used=sel.map(s=>s.col),col=COL.find(k=>!used.includes(k));
+ sel.push({n:c[0],col});$("q").value="";say("");render();
+}
+function remove(n){sel=sel.filter(s=>s.n!==n);say("");render()}
+$("addBtn").onclick=add;
+$("q").addEventListener("keydown",e=>{if(e.key==="Enter")add()});
+$("q").addEventListener("change",()=>{if(D.some(x=>x[0]===$("q").value))add()});
+
+const W=700,H=260,L=44,R=14,T=12,B=26,cm=new Date().getMonth();
+const X=i=>L+i*(W-L-R)/11;
+function nice(min,max,zero){
+ if(zero)min=0;let span=max-min||1,raw=span/5,p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p,
+ st=(f<=1?1:f<=2?2:f<=5?5:10)*p;
+ return{lo:Math.floor(min/st)*st,hi:Math.ceil(max/st)*st,st}}
+function curve(P){let d="";for(let i=0;i<P.length-1;i++){
+ const p0=P[i-1]||P[i],p1=P[i],p2=P[i+1],p3=P[i+2]||P[i+1];
+ const cl=(v,a,b)=>Math.max(Math.min(a,b),Math.min(Math.max(a,b),v));
+ const c1y=cl(p1[1]+(p2[1]-p0[1])/6,p1[1],p2[1]),c2y=cl(p2[1]-(p3[1]-p1[1])/6,p1[1],p2[1]);
+ d+=`C${p1[0]+(p2[0]-p0[0])/6},${c1y} ${p2[0]-(p3[0]-p1[0])/6},${c2y} ${p2[0]},${p2[1]}`}return d}
+const f1=v=>(Math.round(v*10)/10).toString();
+
+function chart(id,o){
+ const el=$(id);
+ if(!o.series.length){el.innerHTML='<div class="empty">Add a city to see this chart.</div>';return}
+ const all=o.series.flatMap(s=>o.band?[...s.hi,...s.lo]:s.v);
+ let mn=Math.min(...all),mx=Math.max(...all);
+ if(o.pad){mn-=0.8;mx+=0.8}
+ if(!o.zero&&!o.pad)mn-=2;
+ const a=nice(mn,Math.max(mx,o.minMax||0),o.zero);
+ const Y=v=>T+(H-T-B)*(1-(v-a.lo)/(a.hi-a.lo));
+ let g="";
+ for(let v=a.lo;v<=a.hi+1e-9;v+=a.st)g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end">${f1(v)}</text>`;
+ MO.forEach((m,i)=>g+=`<text x="${X(i)}" y="${H-8}" text-anchor="middle">${m}</text>`);
+ const cw=(W-L-R)/11;
+ g=`<rect x="${X(cm)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="var(--grid)" opacity=".6"/>`+g;
+ o.series.forEach(s=>{
+  if(o.band){
+   const hi=s.hi.map((v,i)=>[X(i),Y(v)]),lo=s.lo.map((v,i)=>[X(i),Y(v)]),lr=[...lo].reverse();
+   g+=`<path d="M${hi[0]}${curve(hi)}L${lr[0]}${curve(lr)}Z" fill="${s.color}" fill-opacity=".28"/>`;
+   g+=`<path d="M${hi[0]}${curve(hi)}" fill="none" stroke="${s.color}" stroke-width="2"/><path d="M${lo[0]}${curve(lo)}" fill="none" stroke="${s.color}" stroke-width="2" stroke-dasharray="5 3"/>`;
+  }else{
+   const p=s.v.map((v,i)=>[X(i),Y(v)]);
+   g+=`<path d="M${p[0]}${curve(p)}" fill="none" stroke="${s.color}" stroke-width="2.5"/>`+p.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="2.5" fill="${s.color}"/>`).join("");
+  }});
+ g+=`<line id="${id}-x" y1="${T}" y2="${H-B}" stroke="var(--muted)" stroke-dasharray="3 3" style="display:none"/>`;
+ g+=`<rect id="${id}-hit" x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent"/>`;
+ el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.label}">${g}</svg><div class="tip" id="${id}-t"></div>`;
+ const svg=el.querySelector("svg"),tip=$(id+"-t"),xl=$(id+"-x");
+ const move=e=>{
+  const pt=(e.touches?e.touches[0]:e),r=svg.getBoundingClientRect(),
+   sx=(pt.clientX-r.left)/r.width*W,i=Math.max(0,Math.min(11,Math.round((sx-L)/cw)));
+  xl.setAttribute("x1",X(i));xl.setAttribute("x2",X(i));xl.style.display="";
+  tip.innerHTML="<b>"+MO[i]+"</b>"+o.series.map(s=>`<div><span class="dot" style="background:${s.color}"></span>${s.name.split(",")[0]}: ${o.band?s.lo[i]+"° – "+s.hi[i]+"°":f1(s.v[i])+o.unit}</div>`).join("");
+  tip.style.display="block";
+  const w=tip.offsetWidth,px=X(i)/W*r.width;
+  tip.style.left=Math.max(0,Math.min(r.width-w,px+12>r.width-w?px-w-12:px+12))+"px";tip.style.top="8px"};
+ const hit=$(id+"-hit");
+ hit.addEventListener("mousemove",move);hit.addEventListener("touchmove",move,{passive:true});hit.addEventListener("touchstart",move,{passive:true});
+ hit.addEventListener("mouseleave",()=>{tip.style.display="none";xl.style.display="none"});
+}
+
+function render(){
+ $("chips").innerHTML="";
+ sel.forEach(s=>{const d=document.createElement("span");d.className="chip";d.style.borderColor=s.col;
+  d.innerHTML=`${s.n}<button aria-label="Remove ${s.n}">×</button>`;d.querySelector("button").onclick=()=>remove(s.n);$("chips").appendChild(d)});
+ const S=sel.map(s=>({s,c:D.find(x=>x[0]===s.n)}));
+ chart("c-temp",{band:true,label:"Temperature bands by city",series:S.map(({s,c})=>({name:s.n,color:s.col,hi:c[2],lo:c[3]}))});
+ chart("c-rain",{zero:true,unit:" in",minMax:2,label:"Rainfall by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[4]}))});
+ chart("c-snow",{zero:true,unit:" in",minMax:2,label:"Snowfall by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[5]}))});
+ chart("c-day",{pad:true,unit:" h",label:"Daylight hours by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[6]}))});
+}
+const DEFAULTS=["Kansas City, MO","Seattle, WA","Phoenix, AZ"];
+render();
+fetch("data/climate.json").then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(j=>{
+ D=j.cities.map(c=>[c.name,c.lat,c.high,c.low,c.rain,c.snow,daylight(c.lat)]);
+ const dl=$("cities");D.forEach(c=>{const o=document.createElement("option");o.value=c[0];dl.appendChild(o)});
+ let names=DEFAULTS.filter(n=>D.some(c=>c[0]===n));if(!names.length)names=D.slice(0,3).map(c=>c[0]);
+ sel=names.map((n,i)=>({n,col:COL[i]}));render();
+}).catch(e=>say("Couldn't load data/climate.json ("+e.message+"). Check the file path, and serve the folder with a local web server rather than opening the file directly."));
+</script>
+</body>
+</html>
