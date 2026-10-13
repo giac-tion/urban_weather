@@ -48,8 +48,9 @@ footer{color:var(--muted);font-size:12px}
 <section><h2>Temperature <span>°F, average daily high and low</span></h2><div class="wrap" id="c-temp"></div></section>
 <section><h2>Rainfall <span>inches per month</span></h2><div class="wrap" id="c-rain"></div></section>
 <section><h2>Snowfall <span>inches per month</span></h2><div class="wrap" id="c-snow"></div></section>
+<section><h2>Humidity <span>monthly average relative humidity (%)</span></h2><div class="wrap" id="c-humidity"></div></section>
 <section><h2>Daylight <span>hours per day (mid-month)</span></h2><div class="wrap" id="c-day"></div></section>
-<footer>Source: NOAA NCEI 1991–2020 U.S. Climate Normals (station data); daylight is calculated from latitude. Stations without published snowfall normals are shown as zero. The shaded column marks the current month.</footer>
+<footer>Source: NOAA NCEI 1991–2020 U.S. Climate Normals (station data); humidity is the 1991–2020 average from Open-Meteo ERA5-Land, and daylight is calculated from latitude. Stations without published snowfall normals are shown as zero. The shaded column marks the current month.</footer>
 </main>
 <script>
 let D=[]; // filled from data/climate.json
@@ -136,12 +137,13 @@ function render(){
  chart("c-temp",{band:true,label:"Temperature bands by city",series:S.map(({s,c})=>({name:s.n,color:s.col,hi:c[2],lo:c[3]}))});
  chart("c-rain",{zero:true,unit:" in",minMax:2,label:"Rainfall by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[4]}))});
  chart("c-snow",{zero:true,unit:" in",minMax:2,label:"Snowfall by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[5]}))});
- chart("c-day",{pad:true,unit:" h",label:"Daylight hours by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[6]}))});
+ chart("c-humidity",{zero:true,unit:"%",minMax:100,label:"Monthly average humidity by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[6]}))});
+ chart("c-day",{pad:true,unit:" h",label:"Daylight hours by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[7]}))});
 }
 const DEFAULTS=["Kansas City, MO","Seattle, WA","Phoenix, AZ"];
 render();
 fetch("data/climate.json").then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(j=>{
- D=j.cities.map(c=>[c.name,c.lat,c.high,c.low,c.rain,c.snow,daylight(c.lat)]);
+ D=j.cities.map(c=>[c.name,c.lat,c.high,c.low,c.rain,c.snow,c.humidity,daylight(c.lat)]);
  const dl=$("cities");D.forEach(c=>{const o=document.createElement("option");o.value=c[0];dl.appendChild(o)});
  let names=DEFAULTS.filter(n=>D.some(c=>c[0]===n));if(!names.length)names=D.slice(0,3).map(c=>c[0]);
  sel=names.map((n,i)=>({n,col:COL[i]}));render();

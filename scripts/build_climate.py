@@ -40,6 +40,25 @@ def load_cities():
     return cities
 
 
+def fetch_json(url, context):
+    request = Request(
+        url,
+        headers={"User-Agent": "urban-weather-climate-builder/1.0"},
+    )
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=45) as response:
+                return json.load(response)
+        except HTTPError as error:
+            if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                raise RuntimeError(f"HTTP {error.code} while fetching {context}") from error
+            time.sleep(2 ** attempt)
+        except (TimeoutError, URLError) as error:
+            if attempt == 2:
+                raise RuntimeError(f"Could not fetch {context}: {error}") from error
+            time.sleep(2 ** attempt)
+
+
 def fetch_station(station, zero_snow_fallback=False):
     params = urlencode({
         "dataset": "normals-monthly-1991-2020",
@@ -48,24 +67,7 @@ def fetch_station(station, zero_snow_fallback=False):
         "format": "json",
         "units": "standard",
     })
-    request = Request(
-        f"{ENDPOINT}?{params}",
-        headers={"User-Agent": "urban-weather-climate-builder/1.0"},
-    )
-
-    for attempt in range(3):
-        try:
-            with urlopen(request, timeout=45) as response:
-                records = json.load(response)
-            break
-        except HTTPError as error:
-            if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
-                raise RuntimeError(f"NCEI returned HTTP {error.code} for {station}") from error
-            time.sleep(2 ** attempt)
-        except (TimeoutError, URLError) as error:
-            if attempt == 2:
-                raise RuntimeError(f"Could not fetch normals for {station}: {error}") from error
-            time.sleep(2 ** attempt)
+    records = fetch_json(f"{ENDPOINT}?{params}", f"NCEI normals for {station}")
 
     if not isinstance(records, list):
         raise ValueError(f"Unexpected NCEI response for {station}: expected a JSON array")
@@ -92,6 +94,63 @@ def fetch_station(station, zero_snow_fallback=False):
     return monthly
 
 
+def fetch_humidity(city):
+    city_name = city["name"]
+    search_names = [city_name]
+    if ", " in city_name:
+        search_names.append(city_name.rsplit(", ", 1)[0])
+    locations = []
+    for search_name in search_names:
+        geocoding_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode({
+            "name": search_name,
+            "count": 10,
+            "language": "en",
+            "format": "json",
+            "countryCode": "US",
+        })
+        geocoding = fetch_json(geocoding_url, f"Open-Meteo location for {city_name}")
+        locations = geocoding.get("results", []) if isinstance(geocoding, dict) else []
+        if locations:
+            break
+    if not locations:
+        raise ValueError(f"Open-Meteo could not find a location for {city_name}")
+    location = min(
+        locations,
+        key=lambda result: abs(float(result["latitude"]) - float(city["lat"])),
+    )
+
+    params = urlencode({
+        "latitude": location["latitude"],
+        "longitude": location["longitude"],
+        "start_date": "1991-01-01",
+        "end_date": "2020-12-31",
+        "daily": "relative_humidity_2m_mean",
+        "timezone": "auto",
+        "models": "era5_land",
+    })
+    data = fetch_json(
+        f"https://archive-api.open-meteo.com/v1/archive?{params}",
+        f"Open-Meteo humidity for {city_name}",
+    )
+    daily = data.get("daily", {}) if isinstance(data, dict) else {}
+    dates = daily.get("time", [])
+    values = daily.get("relative_humidity_2m_mean", [])
+    if not dates or len(dates) != len(values):
+        raise ValueError(f"Unexpected Open-Meteo humidity response for {city_name}")
+
+    totals = [[] for _ in range(12)]
+    for date, value in zip(dates, values):
+        if value is None:
+            raise ValueError(f"Missing humidity for {city_name} on {date}")
+        month = int(date[5:7])
+        if not 1 <= month <= 12:
+            raise ValueError(f"Unexpected date {date} in humidity data for {city_name}")
+        totals[month - 1].append(float(value))
+    if any(not month for month in totals):
+        raise ValueError(f"Open-Meteo returned incomplete monthly humidity for {city_name}")
+    return [round(sum(month) / len(month), 1) for month in totals]
+
+
 def main():
     cities = load_cities()
     climate = []
@@ -99,11 +158,13 @@ def main():
         print(f"Fetching {city['name']} ({city['station']}) [{index + 1}/{len(cities)}]")
         zero_snow_fallback = city.get("snowFallback") == "zero"
         normals = fetch_station(city["station"], zero_snow_fallback)
+        humidity = fetch_humidity(city)
         climate.append({
             "name": city["name"],
             "lat": float(city["lat"]),
             "station": city["station"],
             "snowFallback": zero_snow_fallback,
+            "humidity": humidity,
             **normals,
         })
         if index + 1 < len(cities):
@@ -112,6 +173,7 @@ def main():
     payload = {
         "dataset": "normals-monthly-1991-2020",
         "source": "NOAA NCEI",
+        "humiditySource": "Open-Meteo ERA5-Land 1991-2020 daily mean relative humidity",
         "cities": climate,
     }
     OUTPUT_FILE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
