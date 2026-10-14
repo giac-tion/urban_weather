@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>City climate comparison</title>
+<title>City climate &amp; col comparison</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#14202b;--muted:#5d6b78;--grid:#e3e7eb;--line:#cfd6dc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161c;--card:#18212a;--text:#e7edf2;--muted:#93a1ad;--grid:#27323c;--line:#3a4753}}
@@ -32,12 +32,26 @@ svg text{fill:var(--muted);font-size:11px}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
 .empty{color:var(--muted);padding:30px 0;text-align:center}
 footer{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:18px 0 14px}
+.tab-button{border:0;border-bottom:3px solid transparent;padding:10px 14px;background:none;color:var(--muted);font:inherit;font-weight:600;cursor:pointer}
+.tab-button[aria-selected="true"]{border-bottom-color:#2a7de1;color:var(--text)}
+.tab-panel[hidden]{display:none}
+.col-note{color:var(--muted);margin:0 0 12px}
+.col-cities{margin:0 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.col-cities strong{display:block;margin-bottom:4px}
+.col-cities ul{display:flex;gap:6px 16px;flex-wrap:wrap;margin:0;padding-left:20px}
+.col-frame{width:100%;height:min(1000px,85vh);min-height:720px;border:1px solid var(--line);border-radius:8px;background:#fff}
 </style>
 </head>
 <body>
 <main>
-<h1>City climate comparison</h1>
-<p class="sub">Monthly averages for up to 5 US cities, overlaid on shared axes.</p>
+<h1>City climate &amp; col comparison</h1>
+<p class="sub">Compare monthly climate and explore col for up to 5 US cities.</p>
+<div class="tabs" role="tablist" aria-label="Comparison views">
+<button class="tab-button" id="tab-climate" type="button" role="tab" aria-selected="true" aria-controls="panel-climate">Climate</button>
+<button class="tab-button" id="tab-col" type="button" role="tab" aria-selected="false" aria-controls="panel-col" tabindex="-1">col</button>
+</div>
+<div class="tab-panel" id="panel-climate" role="tabpanel" aria-labelledby="tab-climate">
 <div class="picker">
 <input id="q" list="cities" placeholder="Type a city, e.g. Denver" autocomplete="off" aria-label="City name">
 <datalist id="cities"></datalist>
@@ -51,6 +65,13 @@ footer{color:var(--muted);font-size:12px}
 <section><h2>Humidity <span>monthly average relative humidity (%)</span></h2><div class="wrap" id="c-humidity"></div></section>
 <section><h2>Daylight <span>hours per day (mid-month)</span></h2><div class="wrap" id="c-day"></div></section>
 <footer>Source: NOAA NCEI 1991–2020 U.S. Climate Normals (station data); humidity is the 1991–2020 average from Open-Meteo ERA5-Land, and daylight is calculated from latitude. Stations without published snowfall normals are shown as zero. The shaded column marks the current month.</footer>
+</div>
+<div class="tab-panel" id="panel-col" role="tabpanel" aria-labelledby="tab-col" hidden>
+<p class="col-note">Enter your current city, a destination, household income, and household size in the embedded col calculator. SmartAsset handles one city pair at a time; the selected weather cities below are provided as a reference for manual entry.</p>
+<div class="col-cities"><strong>Selected weather cities</strong><ul id="col-cities-list"></ul></div>
+<p class="col-note">If the embedded calculator does not load, <a href="https://smartasset.com/mortgage/cost-of-living-calculator" target="_blank" rel="noopener noreferrer">open the SmartAsset col calculator in a new tab</a>.</p>
+<iframe class="col-frame" src="https://smartasset.com/mortgage/cost-of-living-calculator" title="SmartAsset col calculator" loading="lazy"></iframe>
+</div>
 </main>
 <script>
 let D=[]; // filled from data/climate.json
@@ -75,6 +96,24 @@ function remove(n){sel=sel.filter(s=>s.n!==n);say("");render()}
 $("addBtn").onclick=add;
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter")add()});
 $("q").addEventListener("change",()=>{if(D.some(x=>x[0]===$("q").value))add()});
+const tabs=[$("tab-climate"),$("tab-col")];
+function activateTab(tab){
+ tabs.forEach(t=>{
+  const active=t===tab;
+  t.setAttribute("aria-selected",String(active));
+  t.tabIndex=active?0:-1;
+  $(t.getAttribute("aria-controls")).hidden=!active;
+ });
+}
+tabs.forEach((tab,index)=>{
+ tab.addEventListener("click",()=>activateTab(tab));
+ tab.addEventListener("keydown",e=>{
+  if(!["ArrowLeft","ArrowRight","Home","End"].includes(e.key))return;
+  e.preventDefault();
+  const next=e.key==="Home"?0:e.key==="End"?tabs.length-1:(index+(e.key==="ArrowRight"?1:tabs.length-1))%tabs.length;
+  activateTab(tabs[next]);tabs[next].focus();
+ });
+});
 
 const W=700,H=260,L=44,R=14,T=12,B=26,cm=new Date().getMonth();
 const X=i=>L+i*(W-L-R)/11;
@@ -133,6 +172,8 @@ function render(){
  $("chips").innerHTML="";
  sel.forEach(s=>{const d=document.createElement("span");d.className="chip";d.style.borderColor=s.col;
   d.innerHTML=`${s.n}<button aria-label="Remove ${s.n}">×</button>`;d.querySelector("button").onclick=()=>remove(s.n);$("chips").appendChild(d)});
+ const cityList=$("col-cities-list");cityList.replaceChildren();
+ sel.forEach(s=>{const item=document.createElement("li");item.textContent=s.n;cityList.appendChild(item)});
  const S=sel.map(s=>({s,c:D.find(x=>x[0]===s.n)}));
  chart("c-temp",{band:true,label:"Temperature bands by city",series:S.map(({s,c})=>({name:s.n,color:s.col,hi:c[2],lo:c[3]}))});
  chart("c-rain",{zero:true,unit:" in",minMax:2,label:"Rainfall by city",series:S.map(({s,c})=>({name:s.n,color:s.col,v:c[4]}))});
